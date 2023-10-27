@@ -1,0 +1,315 @@
+{
+    "Parameters": {
+        "AccountID": {
+            "Default": "500658983133",
+            "Description": "AWS Account ID",
+            "Type": "String"
+        },
+        "FunctionName": {
+            "Default": "KinesisLambda",
+            "Description": "Lambda Function Name",
+            "Type": "String"
+        },
+        "Account": {
+            "Default": "Meiling_AWS",
+            "Description": "AWS Account",
+            "Type": "String"
+        },
+        "Region": {
+            "Default": "us-east-1",
+            "Description": "AWS Region",
+            "Type": "String"
+        },
+        "LambdaBucketName": {
+            "Default": "kinesis-test-mei",
+            "Description": "raw bucket name",
+            "Type": "String"
+        },
+        "S3KmsKeyAlias": {
+            "Default": "alias/first-key",
+            "Description": "KmsKey to encrypt and decrypt objects in the raw bucket",
+            "Type": "String"
+        },
+        "S3KmsKeyArn": {
+            "Default": "arn:aws:kms:us-east-1:500658983133:key/7fd84f54-0855-46d1-9001-d767023f2ec3",
+            "Description": "KmsKey to encrypt and decrypt objects in the raw bucket",
+            "Type": "String"
+        },
+        "RoleName": {
+            "Default": "KinesisLambdaRole",
+            "Description": "Lambda Function Role Name",
+            "Type": "String"
+        }
+    },
+    "Resources": {
+        "KinesisStream": {
+            "Type": "AWS::Kinesis::Stream",
+            "Properties": {
+                "Name": "DataProcessingKinesis",
+                "RetentionPeriodHours": 48,
+                "StreamEncryption": {
+                    "EncryptionType": "KMS",
+                    "KeyId": {
+                        "Ref": "S3KmsKeyAlias"
+                    }
+                },
+                "StreamModeDetails": {
+                    "StreamMode": "ON_DEMAND"
+                },
+                "Tags": [
+                    {
+                        "Key": "Developer",
+                        "Value": "Meiling"
+                    },
+                    {
+                        "Key": "SupportEmail",
+                        "Value": "cxxx@gmail.com"
+                    }
+                ]
+            }
+        },
+        "KinesisEventSourceMapping": {
+            "Type": "AWS::Lambda::EventSourceMapping",
+            "DependsOn": [
+                "KinesisLambda",
+                "KinesisStream"
+            ],
+            "Properties": {
+                "BatchSize": 150,
+                "Enabled": true,
+                "EventSourceArn": {
+                    "Fn::GetAtt": [
+                        "KinesisStream",
+                        "Arn"
+                    ]
+                },
+                "FunctionName": {
+                    "Fn::GetAtt": [
+                        "KinesisLambda",
+                        "Arn"
+                    ]
+                },
+                "MaximumBatchingWindowInSeconds": 5,
+                "ParallelizationFactor": 10,
+                "StartingPosition": "LATEST"
+            }
+        },
+        "KinesisLambda": {
+            "Type": "AWS::Lambda::Function",
+            "Properties": {
+                "Architectures": [
+                    "arm64"
+                ],
+                "Code": {
+                    "S3Bucket": "lambda-zipfile",
+                    "S3Key": "kinesis_lambda.zip"
+                },
+                "Description": "This is a demo lambda template",
+                "Environment": {
+                    "Variables": {
+                        "S3KmsKeyAlias": {
+                            "Ref": "S3KmsKeyAlias"
+                        }
+                    }
+                },
+                "EphemeralStorage": {
+                    "Size": 1024
+                },
+                "FunctionName": {
+                    "Ref": "FunctionName"
+                },
+                "Handler": "kinesis_lambda.lambda_handler",
+                "MemorySize": 128,
+                "PackageType": "Zip",
+                "Role": {
+                    "Fn::GetAtt": [
+                        "LambdaRole",
+                        "Arn"
+                    ]
+                },
+                "Runtime": "python3.11",
+                "Tags": [
+                    {
+                        "Key": "Account",
+                        "Value": "Meiling AWS"
+                    },
+                    {
+                        "Key": "SupportEmail",
+                        "Value": "cxxxx@gamil.com"
+                    }
+                ],
+                "Timeout": 60
+            }
+        },
+        "LambdaRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": [
+                                    "lambda.amazonaws.com"
+                                ]
+                            },
+                            "Action": [
+                                "sts:AssumeRole"
+                            ]
+                        }
+                    ]
+                },
+                "Path": "/",
+                "Policies": [
+                    {
+                        "PolicyName": "KinesisAccess",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Sid": "ReadAccess",
+                                    "Action": [
+                                        "s3:GetObject",
+                                        "s3:GetObjectVersion"
+                                    ],
+                                    "Effect": "Allow",
+                                    "Resource": [
+                                        {
+                                            "Fn::Join": [
+                                                "",
+                                                [
+                                                    "arn:aws:s3:::",
+                                                    {
+                                                        "Ref": "LambdaBucketName"
+                                                    }
+                                                ]
+                                            ]
+                                        },
+                                        {
+                                            "Fn::Join": [
+                                                "",
+                                                [
+                                                    "arn:aws:s3:::",
+                                                    {
+                                                        "Ref": "LambdaBucketName"
+                                                    },
+                                                    "/*"
+                                                ]
+                                            ]
+                                        }
+                                    ]
+                                },
+                                {
+                                    "Sid": "KinesisReadAccess",
+                                    "Action": [
+                                        "kinesis:GetRecords",
+                                        "kinesis:GetShardIterator",
+                                        "kinesis:DescribeStream",
+                                        "kinesis:ListShards",
+                                        "kinesis:ListStreams"
+                                    ],
+                                    "Effect": "Allow",
+                                    "Resource": [
+                                        {
+                                            "Fn::GetAtt": [
+                                                "KinesisStream",
+                                                "Arn"
+                                            ]
+                                        }
+                                        
+                                    ]
+                                },
+                                {
+                                    "Sid": "WriteAccess",
+                                    "Action": [
+                                        "s3:PutObject"
+                                    ],
+                                    "Effect": "Allow",
+                                    "Resource": [
+                                        {
+                                            "Fn::Join": [
+                                                "",
+                                                [
+                                                    "arn:aws:s3:::",
+                                                    {
+                                                        "Ref": "LambdaBucketName"
+                                                    }
+                                                ]
+                                            ]
+                                        },
+                                        {
+                                            "Fn::Join": [
+                                                "",
+                                                [
+                                                    "arn:aws:s3:::",
+                                                    {
+                                                        "Ref": "LambdaBucketName"
+                                                    },
+                                                    "/*"
+                                                ]
+                                            ]
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "PolicyName": "BuildDemoLambdaLogPolicy",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Sid": "LogAccess",
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "logs:*"
+                                    ],
+                                    "Resource": "arn:aws:logs:*:*:*"
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "PolicyName": "DemoLambdaKMSPolicy",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "kms:Encrypt",
+                                        "kms:Decrypt",
+                                        "kms:ReEncrypt*",
+                                        "kms:GenerateDataKey*",
+                                        "kms:DescribeKey"
+                                    ],
+                                    "Resource": {
+                                        "Ref": "S3KmsKeyArn"
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "RoleName": {
+                    "Fn::Join": [
+                        "-",
+                        [
+                            {
+                                "Ref": "Account"
+                            },
+                            {
+                                "Ref": "AWS::Region"
+                            },
+                            {
+                                "Ref": "RoleName"
+                            }
+                        ]
+                    ]
+                }
+            }
+        }
+    }
+}
